@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Answer;
 use App\Models\Participation;
+use App\Models\Category;
 use App\Models\Question;
 use App\Models\QuizSession;
 use Illuminate\Http\Request;
@@ -35,10 +36,15 @@ class QuizSessionController extends Controller
 
         $questionsCount = $request->input('questions_count', 10);
 
-        $questions = Question::where('category_id', $request->category_id)
-            ->inRandomOrder()
-            ->limit($questionsCount)
-            ->get();
+        $category = Category::findOrFail($request->category_id);
+
+        $questionsQuery = Question::inRandomOrder()->limit($questionsCount);
+
+        if ($category->slug !== 'mix') {
+            $questionsQuery->where('category_id', $category->id);
+        }
+
+        $questions = $questionsQuery->get();
 
         if ($questions->count() < 3) {
             return response()->json([
