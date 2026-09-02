@@ -1,69 +1,76 @@
-# QuizBattle — API Backend (Laravel)
+# QuizBattle — API Backend
 
-API REST pour **QuizBattle**, une app de quiz de culture générale entre potes, en mode **asynchrone** (chacun joue à son rythme) avec scores et classements.
+API REST développée en Laravel pour QuizBattle, une application de quiz de culture générale conçue pour être jouée entre amis en mode asynchrone : chaque joueur répond aux questions à son propre rythme, et un système de classement (par session et global) permet de comparer les scores.
 
-## Stack
+Ce dépôt contient uniquement le backend. Le frontend associé (Next.js) se trouve dans le dépôt quizbattle-frontend.
 
-- Laravel 11
-- Laravel Sanctum (auth par token)
-- MySQL / PostgreSQL
+## Stack technique
 
-## Installation
+- Langage : PHP 8.3
+- Framework : Laravel 13
+- Authentification : Laravel Sanctum (tokens API)
+- Base de données : PostgreSQL en production, SQLite en développement local
+- Conteneurisation : Docker (image personnalisée avec extensions PHP requises)
+- Hébergement : Render
 
-```bash
-composer install
-cp .env.example .env
-php artisan key:generate
-```
+## Architecture et choix techniques
 
-Configurer la base de données dans `.env` (DB_DATABASE, DB_USERNAME, DB_PASSWORD), puis :
+L'application suit une architecture API REST classique en couches (routes, contrôleurs, modèles Eloquent), sans logique métier dans les contrôleurs au-delà de ce qui est nécessaire à des endpoints simples.
 
-```bash
-php artisan migrate --seed
-php artisan serve
-```
+Modèle de données :
+- users : compte joueur (pseudo, email, mot de passe, avatar)
+- categories : catégories de questions, y compris une catégorie "Mix" qui pioche des questions dans toutes les catégories
+- questions : banque de questions avec options de réponse au format JSON et index de la bonne réponse
+- quiz_sessions : une session de jeu identifiée par un code court, associée à une catégorie et à un nombre de questions
+- session_questions : instantané des questions exactes tirées pour une session donnée, pour que le classement reste cohérent même si la banque de questions évolue par la suite
+- participations : la participation d'un joueur à une session, avec son score et son statut (terminé ou non)
+- answers : chaque réponse individuelle donnée par un joueur, avec le temps de réponse et les points obtenus
 
-L'API est disponible sur `http://localhost:8000/api`.
+Le barème de points favorise la rapidité : une réponse correcte rapporte entre 20 et 100 points selon le temps de réponse, une réponse incorrecte ou absente ne rapporte rien.
 
-## Modèle de données
+## Démarche de développement
 
-- **users** — pseudo, email, mot de passe, avatar (emoji)
-- **categories** — catégories de questions (Culture générale, Sport, Cinéma, etc.)
-- **questions** — banque de questions (texte, options JSON, index de la bonne réponse)
-- **quiz_sessions** — une session = un code à partager + une catégorie + N questions tirées au hasard
-- **session_questions** — snapshot des questions exactes tirées pour une session donnée
-- **participations** — un joueur qui a rejoint une session (score, statut terminé/non terminé)
-- **answers** — chaque réponse donnée par un joueur, avec temps de réponse et points gagnés
+Le projet a été conçu et développé entièrement depuis un terminal Android (Termux), sans poste de travail traditionnel disponible. Cette contrainte a nécessité de résoudre plusieurs problèmes d'environnement rarement rencontrés dans un contexte de développement standard :
 
-## Barème de points
+- Contraintes de compatibilité de versions entre PHP local et l'image Docker de production, résolues en retirant composer.lock du contrôle de version pour laisser chaque environnement résoudre ses propres dépendances compatibles
+- Incompatibilité du serveur de développement PHP intégré avec le système de verrouillage de fichiers d'Android, contournée en désactivant OPcache pour l'exécution locale
+- Mise en place d'un pipeline de build Docker complet (extensions PHP, dépendances système) pour un déploiement reproductible sur Render, indépendant de l'environnement de développement local
 
-Réponse correcte : `max(20, 100 - temps_de_réponse_en_secondes × 4)` points.
-Réponse incorrecte ou absente : 0 point.
-Plus tu réponds vite et juste, plus tu marques de points.
+## Installation locale
 
-## Endpoints principaux
+Prérequis : PHP 8.3, Composer.
 
-| Méthode | Route | Description |
-|---|---|---|
-| POST | `/api/register` | Inscription (pseudo, email, mot de passe, avatar) |
-| POST | `/api/login` | Connexion |
-| POST | `/api/logout` | Déconnexion (auth requise) |
-| GET | `/api/me` | Profil courant |
-| GET | `/api/categories` | Liste des catégories |
-| POST | `/api/quiz-sessions` | Créer une session (category_id, questions_count) → renvoie un code |
-| POST | `/api/quiz-sessions/{code}/join` | Rejoindre une session via son code |
-| POST | `/api/quiz-sessions/{code}/answer` | Soumettre une réponse |
-| POST | `/api/quiz-sessions/{code}/finish` | Terminer sa participation |
-| GET | `/api/quiz-sessions/{code}/leaderboard` | Classement d'une session |
-| GET | `/api/leaderboard/global` | Classement global cumulé |
+    composer install
+    cp .env.example .env
+    php artisan key:generate
 
-Toutes les routes sauf `/register` et `/login` nécessitent un header `Authorization: Bearer {token}`.
+Configurer la connexion à la base de données dans .env, puis :
 
-## Exemple de flux
+    php artisan migrate --seed
+    php artisan serve
 
-1. Un joueur s'inscrit / se connecte → reçoit un token
-2. Il crée une session sur une catégorie → reçoit un `code` (ex: `AB3XQ9`)
-3. Il partage le code à ses potes
-4. Chaque pote rejoint via `/join`, répond aux questions à son rythme via `/answer`
-5. Chacun termine via `/finish`
-6. Tout le monde consulte `/leaderboard` pour voir le classement de la partie
+L'API est disponible sur http://localhost:8000/api.
+
+## Déploiement
+
+Le déploiement en production utilise l'image Docker définie dans le Dockerfile à la racine du projet. Render construit cette image à chaque push sur la branche principale, exécute les migrations et le seeding automatiquement au démarrage du conteneur, puis lance le serveur.
+
+Variables d'environnement requises en production : APP_KEY, APP_ENV, APP_DEBUG, DB_CONNECTION, DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD, FRONTEND_URL, SANCTUM_STATEFUL_DOMAINS.
+
+## Points de terminaison de l'API
+
+| Méthode | Route | Authentification | Description |
+|---|---|---|---|
+| POST | /api/register | Non | Inscription (pseudo, email, mot de passe, avatar) |
+| POST | /api/login | Non | Connexion |
+| POST | /api/logout | Oui | Déconnexion |
+| GET | /api/me | Oui | Profil du joueur connecté |
+| GET | /api/categories | Oui | Liste des catégories disponibles |
+| POST | /api/quiz-sessions | Oui | Création d'une session de quiz |
+| POST | /api/quiz-sessions/{code}/join | Oui | Rejoindre une session via son code |
+| POST | /api/quiz-sessions/{code}/answer | Oui | Soumission d'une réponse |
+| POST | /api/quiz-sessions/{code}/finish | Oui | Fin de la participation d'un joueur |
+| GET | /api/quiz-sessions/{code}/leaderboard | Oui | Classement d'une session |
+| GET | /api/leaderboard/global | Oui | Classement global cumulé |
+
+L'authentification se fait par token Bearer (header Authorization) obtenu via /register ou /login.
