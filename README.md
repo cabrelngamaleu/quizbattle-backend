@@ -1,76 +1,114 @@
-# QuizBattle — API Backend
+# QuizBattle API
 
-API REST développée en Laravel pour QuizBattle, une application de quiz de culture générale conçue pour être jouée entre amis en mode asynchrone : chaque joueur répond aux questions à son propre rythme, et un système de classement (par session et global) permet de comparer les scores.
+Stack : PHP 8.3, Laravel 13, PostgreSQL, Docker, Render
 
-Ce dépôt contient uniquement le backend. Le frontend associé (Next.js) se trouve dans le dépôt quizbattle-frontend.
+API REST du backend de QuizBattle, une application de quiz de culture generale a jouer entre amis. Chaque joueur cree ou rejoint une session via un code court, repond aux questions a son propre rythme, et compare son score dans un classement de session ainsi que dans un classement global cumule.
+
+Le frontend associe (Next.js) vit dans le depot separe quizbattle-frontend.
+
+## Sommaire
+
+- Fonctionnalites
+- Stack technique
+- Architecture
+- Modele de donnees
+- Points de terminaison de l'API
+- Installation
+- Deploiement
+- Structure du projet
+
+## Fonctionnalites
+
+- Authentification par token via Laravel Sanctum (inscription, connexion, deconnexion)
+- Creation de sessions de quiz par categorie, avec un nombre de questions configurable
+- Categorie "Mix" tirant des questions parmi toutes les categories confondues
+- Mode de jeu asynchrone : chaque joueur repond a son propre rythme
+- Bareme de points pondere par le temps de reponse
+- Classement par session et classement global cumule, calcules cote serveur
+- API entierement stateless
 
 ## Stack technique
 
-- Langage : PHP 8.3
-- Framework : Laravel 13
-- Authentification : Laravel Sanctum (tokens API)
-- Base de données : PostgreSQL en production, SQLite en développement local
-- Conteneurisation : Docker (image personnalisée avec extensions PHP requises)
-- Hébergement : Render
+| Categorie | Choix | Justification |
+|---|---|---|
+| Langage | PHP 8.3 | Version stable, typage strict |
+| Framework | Laravel 13 | Ecosysteme mature, Eloquent ORM, Sanctum |
+| Authentification | Laravel Sanctum | Token leger adapte a une API separee du frontend |
+| Base de donnees | PostgreSQL en production, SQLite en developpement | Robustesse en production, simplicite en local |
+| Conteneurisation | Docker | Build reproductible, independant de l'environnement hote |
+| Hebergement | Render | Deploiement continu depuis GitHub |
 
-## Architecture et choix techniques
+## Architecture
 
-L'application suit une architecture API REST classique en couches (routes, contrôleurs, modèles Eloquent), sans logique métier dans les contrôleurs au-delà de ce qui est nécessaire à des endpoints simples.
+L'application suit une architecture REST en couches classique : routes, middleware d'authentification et CORS, controleurs, modeles Eloquent, base de donnees.
 
-Modèle de données :
+Chaque controleur reste concentre sur une seule responsabilite (authentification, categories, sessions de quiz, classements). Le calcul du score est centralise dans QuizSessionController, ce qui garantit un bareme coherent quel que soit le point d'entree.
+
+## Modele de donnees
+
+Tables principales :
+
 - users : compte joueur (pseudo, email, mot de passe, avatar)
-- categories : catégories de questions, y compris une catégorie "Mix" qui pioche des questions dans toutes les catégories
-- questions : banque de questions avec options de réponse au format JSON et index de la bonne réponse
-- quiz_sessions : une session de jeu identifiée par un code court, associée à une catégorie et à un nombre de questions
-- session_questions : instantané des questions exactes tirées pour une session donnée, pour que le classement reste cohérent même si la banque de questions évolue par la suite
-- participations : la participation d'un joueur à une session, avec son score et son statut (terminé ou non)
-- answers : chaque réponse individuelle donnée par un joueur, avec le temps de réponse et les points obtenus
+- categories : categories de questions, y compris la categorie speciale "Mix"
+- questions : banque de questions (enonce, options JSON, index de la bonne reponse, difficulte)
+- quiz_sessions : une partie identifiee par un code court, liee a une categorie
+- session_questions : instantane des questions tirees pour une session donnee
+- participations : participation d'un joueur a une session (score, statut termine ou non)
+- answers : chaque reponse individuelle (option choisie, exactitude, temps de reponse, points)
 
-Le barème de points favorise la rapidité : une réponse correcte rapporte entre 20 et 100 points selon le temps de réponse, une réponse incorrecte ou absente ne rapporte rien.
-
-## Démarche de développement
-
-Le projet a été conçu et développé entièrement depuis un terminal Android (Termux), sans poste de travail traditionnel disponible. Cette contrainte a nécessité de résoudre plusieurs problèmes d'environnement rarement rencontrés dans un contexte de développement standard :
-
-- Contraintes de compatibilité de versions entre PHP local et l'image Docker de production, résolues en retirant composer.lock du contrôle de version pour laisser chaque environnement résoudre ses propres dépendances compatibles
-- Incompatibilité du serveur de développement PHP intégré avec le système de verrouillage de fichiers d'Android, contournée en désactivant OPcache pour l'exécution locale
-- Mise en place d'un pipeline de build Docker complet (extensions PHP, dépendances système) pour un déploiement reproductible sur Render, indépendant de l'environnement de développement local
-
-## Installation locale
-
-Prérequis : PHP 8.3, Composer.
-
-    composer install
-    cp .env.example .env
-    php artisan key:generate
-
-Configurer la connexion à la base de données dans .env, puis :
-
-    php artisan migrate --seed
-    php artisan serve
-
-L'API est disponible sur http://localhost:8000/api.
-
-## Déploiement
-
-Le déploiement en production utilise l'image Docker définie dans le Dockerfile à la racine du projet. Render construit cette image à chaque push sur la branche principale, exécute les migrations et le seeding automatiquement au démarrage du conteneur, puis lance le serveur.
-
-Variables d'environnement requises en production : APP_KEY, APP_ENV, APP_DEBUG, DB_CONNECTION, DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD, FRONTEND_URL, SANCTUM_STATEFUL_DOMAINS.
+Bareme de points : une reponse correcte rapporte entre 20 et 100 points selon le temps de reponse (100 moins 4 points par seconde ecoulee, avec un minimum de 20). Une reponse incorrecte ou absente ne rapporte rien.
 
 ## Points de terminaison de l'API
 
-| Méthode | Route | Authentification | Description |
+### Authentification
+
+| Methode | Route | Auth | Description |
 |---|---|---|---|
 | POST | /api/register | Non | Inscription (pseudo, email, mot de passe, avatar) |
-| POST | /api/login | Non | Connexion |
-| POST | /api/logout | Oui | Déconnexion |
-| GET | /api/me | Oui | Profil du joueur connecté |
-| GET | /api/categories | Oui | Liste des catégories disponibles |
-| POST | /api/quiz-sessions | Oui | Création d'une session de quiz |
-| POST | /api/quiz-sessions/{code}/join | Oui | Rejoindre une session via son code |
-| POST | /api/quiz-sessions/{code}/answer | Oui | Soumission d'une réponse |
-| POST | /api/quiz-sessions/{code}/finish | Oui | Fin de la participation d'un joueur |
-| GET | /api/quiz-sessions/{code}/leaderboard | Oui | Classement d'une session |
-| GET | /api/leaderboard/global | Oui | Classement global cumulé |
+| POST | /api/login | Non | Connexion, renvoie un token Bearer |
+| POST | /api/logout | Oui | Revocation du token courant |
+| GET | /api/me | Oui | Profil du joueur authentifie |
 
-L'authentification se fait par token Bearer (header Authorization) obtenu via /register ou /login.
+### Categories et sessions
+
+| Methode | Route | Auth | Description |
+|---|---|---|---|
+| GET | /api/categories | Oui | Liste des categories avec nombre de questions disponibles |
+| POST | /api/quiz-sessions | Oui | Cree une session et renvoie un code de partage |
+| POST | /api/quiz-sessions/{code}/join | Oui | Rejoint une session existante |
+| POST | /api/quiz-sessions/{code}/answer | Oui | Soumet une reponse |
+| POST | /api/quiz-sessions/{code}/finish | Oui | Marque la participation comme terminee |
+| GET | /api/quiz-sessions/{code}/leaderboard | Oui | Classement d'une session |
+| GET | /api/leaderboard/global | Oui | Classement global cumule |
+
+Toute route authentifiee attend un header Authorization: Bearer suivi du token, obtenu via /register ou /login.
+
+## Installation
+
+Prerequis : PHP 8.3, Composer.
+
+composer install
+cp .env.example .env
+php artisan key:generate
+
+Configurer la connexion a la base de donnees dans .env, puis :
+
+php artisan migrate --seed
+php artisan serve
+
+L'API est alors disponible sur http://localhost:8000/api. Le seeding fournit six categories et une trentaine de questions pretes a l'emploi.
+
+## Deploiement
+
+Le deploiement en production repose sur l'image Docker definie a la racine du projet (Dockerfile). Render reconstruit cette image a chaque push sur la branche principale, execute les migrations et le seeding au demarrage du conteneur, puis lance le serveur applicatif.
+
+Variables d'environnement requises en production : APP_KEY, APP_ENV, APP_DEBUG, DB_CONNECTION, DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD, FRONTEND_URL, SANCTUM_STATEFUL_DOMAINS.
+
+## Structure du projet
+
+app/Http/Controllers/Api : controleurs de l'API (Auth, Category, QuizSession, Leaderboard)
+app/Models : modeles Eloquent et leurs relations
+database/migrations : schema de la base de donnees
+database/seeders : donnees de demonstration
+routes/api.php : declaration des routes de l'API
+Dockerfile : image de production utilisee par Render
